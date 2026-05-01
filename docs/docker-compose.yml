@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  zookeeper:
+    image: zookeeper:3.9
+    container_name: zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"    # client connections
+      - "2888:2888"    # peer connections (for multi-node setups)
+      - "3888:3888"    # leader election (for multi-node setups)
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_STANDALONE_ENABLED: "true"
+      ZOO_4LW_COMMANDS_WHITELIST: "mntr,conf,ruok,stat"
+    volumes:
+      - zk-data:/data
+      - zk-datalog:/datalog
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zoonavigator:
+    image: elkozmon/zoonavigator:latest
+    container_name: zoonavigator
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      HTTP_PORT: 9000
+      # Pre-configure a connection named "local" pointing at the ZK container
+      CONNECTION_LOCAL_NAME: "local"
+      CONNECTION_LOCAL_CONN: "zookeeper:2181"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+
+volumes:
+  zk-data:
+  zk-datalog:

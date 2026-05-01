@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zk-config-starter"
+version = "1.0.0"
+description = "Zookeeper-backed live config dictionary for Python"
+readme = "README.md"
+requires-python = ">=3.7"
+license = { text = "MIT" }
+authors = [{ name = "Ali Mojahed", email = "alimojahed@users.noreply.github.com" }]
+keywords = ["zookeeper", "config", "distributed", "configuration", "kazoo"]
+dependencies = ["kazoo>=2.8,<3"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: System :: Distributed Computing",
+  "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
+  "pytest-cov",
+  "ruff>=0.4",
+  "mypy>=1.4",
+  "build",
+  "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/alimojahed/python-zk-config-starter"
+Repository = "https://github.com/alimojahed/python-zk-config-starter"
+Issues = "https://github.com/alimojahed/python-zk-config-starter/issues"
+Changelog = "https://github.com/alimojahed/python-zk-config-starter/releases"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zk_config_starter"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py37"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["UP007"]  # Allow Optional[X] style for 3.7 compat
+
+[tool.mypy]
+python_version = "3.7"
+strict = true
+packages = ["zk_config_starter"]
+
+[tool.pytest.ini_options]
+markers = ["integration: requires a running Zookeeper instance (set ZK_HOSTS env var)"]
+addopts = "-ra -q"
+testpaths = ["tests"]
