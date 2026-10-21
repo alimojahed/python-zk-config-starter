@@ -1,10 +1,12 @@
 """Unit tests for ZkConfigClient (mocked Kazoo — no live ZK required)."""
-from unittest.mock import MagicMock, call, patch
+from typing import Union
+from unittest.mock import MagicMock, patch
 
 import pytest
+from kazoo.exceptions import AuthFailedError
 
 from zk_config_starter.client import ZkConfigClient
-from zk_config_starter.exceptions import ZkConnectionError
+from zk_config_starter.exceptions import ZkAuthenticationError, ZkConnectionError
 from zk_config_starter.modes import StorageMode
 from zk_config_starter.watchers.children import ChildrenWatcher
 from zk_config_starter.watchers.properties import PropertiesWatcher
@@ -13,7 +15,7 @@ from zk_config_starter.watchers.properties import PropertiesWatcher
 @pytest.fixture()
 def mock_kazoo():
     """Patch KazooClient so tests never open a real socket."""
-    with patch("zk_config_starter.client.KazooClient") as MockKazoo:
+    with patch("zk_config_starter.connection.KazooClient") as MockKazoo:
         instance = MagicMock()
         MockKazoo.return_value = instance
         yield MockKazoo, instance
@@ -51,6 +53,7 @@ class TestZkConfigClientLifecycle:
 
         MockKazoo.assert_called_once_with(hosts="localhost:2181", timeout=10.0)
         zk_instance.start.assert_called_once()
+        zk_instance.add_auth.assert_not_called()
 
     def test_start_is_idempotent(self, mock_kazoo: tuple) -> None:
         MockKazoo, zk_instance = mock_kazoo
@@ -69,6 +72,36 @@ class TestZkConfigClientLifecycle:
         client = ZkConfigClient(hosts="bad:9999", path="/cfg")
         with pytest.raises(ZkConnectionError, match="bad:9999"):
             client.start()
+
+        zk_instance.stop.assert_called_once()
+        zk_instance.close.assert_called_once()
+
+    def test_auth_failure_is_cleaned_up(self, mock_kazoo: tuple) -> None:
+        _, zk_instance = mock_kazoo
+        zk_instance.add_auth.side_effect = AuthFailedError()
+        client = ZkConfigClient(
+            hosts="localhost:2181",
+            path="/cfg",
+            auth_data=[("digest", b"user:pass")],
+        )
+
+        with pytest.raises(ZkAuthenticationError):
+            client.start()
+
+        zk_instance.stop.assert_called_once()
+        zk_instance.close.assert_called_once()
+
+    def test_watcher_start_failure_closes_session(self, mock_kazoo: tuple) -> None:
+        _, zk_instance = mock_kazoo
+        client = ZkConfigClient(hosts="localhost:2181", path="/cfg")
+        client._watcher = MagicMock()
+        client._watcher.start.side_effect = RuntimeError("watch failed")
+
+        with pytest.raises(RuntimeError, match="watch failed"):
+            client.start()
+
+        zk_instance.stop.assert_called_once()
+        zk_instance.close.assert_called_once()
 
     def test_close_calls_watcher_stop_and_kazoo_close(self, mock_kazoo: tuple) -> None:
         _, zk_instance = mock_kazoo
@@ -97,16 +130,21 @@ class TestZkConfigClientLifecycle:
 
         assert client._started is False
 
-    def test_auth_data_passed_to_kazoo(self, mock_kazoo: tuple) -> None:
+    @pytest.mark.parametrize("credential", ["user:pass", b"user:pass"])
+    def test_auth_data_passed_to_kazoo(
+        self,
+        mock_kazoo: tuple,
+        credential: Union[str, bytes],
+    ) -> None:
         _, zk_instance = mock_kazoo
-        cred = ("digest", b"user:pass")
+        cred = ("digest", credential)
         client = ZkConfigClient(
             hosts="localhost:2181", path="/cfg", auth_data=[cred]
         )
         client._watcher = MagicMock()
         client.start()
 
-        zk_instance.add_auth.assert_called_once_with("digest", b"user:pass")
+        zk_instance.add_auth.assert_called_once_with("digest", credential)
 
 
 class TestZkConfigClientConfig:

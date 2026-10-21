@@ -18,17 +18,34 @@ Public API
 - :exc:`ZkConfigParseError` — raised when properties-file data is malformed
 """
 from .client import ZkConfigClient
-from .exceptions import ZkConfigError, ZkConfigParseError, ZkConnectionError
+from .exceptions import (
+    ZkAuthenticationError,
+    ZkConfigError,
+    ZkConfigParseError,
+    ZkConnectionError,
+    ZkNodeNotFoundError,
+    ZkOperationError,
+    ZkSnapshotChangedError,
+)
 from .modes import StorageMode
+from .parser import parse_properties
+from .reader import ZkNode, ZkReader
 from .store import ConfigStore
 
 __all__ = [
     "ZkConfigClient",
+    "ZkReader",
+    "ZkNode",
     "ConfigStore",
     "StorageMode",
+    "parse_properties",
     "ZkConfigError",
     "ZkConnectionError",
+    "ZkAuthenticationError",
+    "ZkOperationError",
+    "ZkNodeNotFoundError",
+    "ZkSnapshotChangedError",
     "ZkConfigParseError",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
