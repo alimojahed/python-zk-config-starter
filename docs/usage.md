@@ -79,6 +79,52 @@ print(client.config.keys())
 
 ---
 
+## Read-only znode access
+
+`ZkReader` is for callers that need raw znode bytes and metadata without a
+live configuration store. Unlike `ZkConfigClient`, it never creates missing
+paths and does not install watchers.
+
+```python
+from zk_config_starter import ZkReader
+
+with ZkReader(hosts="localhost:2181") as reader:
+    node = reader.read("/config/device")
+    print(node.data)
+    print(node.version, node.cversion)
+
+    ordered = reader.read_many([
+        "/config/device",
+        "/config/device/camera-0",
+    ])
+
+    stable = reader.read_stable([
+        "/config/device",
+        "/config/device/camera-0",
+    ])
+```
+
+`read_many()` reads sequentially in input order and makes no atomicity claim.
+`read_stable()` performs exactly two complete ordered passes and returns only
+when they match. It detects a change between those passes, but it is not an
+atomic ZooKeeper snapshot and does not retry until stable.
+
+Lifecycle can also be managed explicitly with `start()` and `close()`. Both
+methods are idempotent. Reads start the owned session lazily if necessary.
+
+Kazoo 2.10 expects string credentials, so strings are recommended. Byte
+credentials are also accepted and passed through unchanged for compatibility
+with legacy callers; support for bytes depends on the installed Kazoo version.
+
+```python
+reader = ZkReader(
+    hosts="localhost:2181",
+    auth_data=[("digest", "user:password")],
+)
+```
+
+---
+
 ## Change subscriptions
 
 Register a callback to be notified whenever any property changes.  The
@@ -120,11 +166,15 @@ finally:
 
 ## Authentication (digest scheme)
 
+String credentials are recommended for Kazoo 2.10. Byte credentials remain
+accepted for legacy pass-through compatibility, but are not supported by every
+Kazoo version. Credentials are never encoded or decoded by this library.
+
 ```python
 client = ZkConfigClient(
     hosts="localhost:2181",
     path="/config",
-    auth_data=[("digest", b"user:password")],
+    auth_data=[("digest", "user:password")],
 )
 ```
 
@@ -147,8 +197,12 @@ client = ZkConfigClient(
 | Exception | When raised |
 |-----------|-------------|
 | `ZkConnectionError` | Cannot connect within *timeout* seconds |
+| `ZkAuthenticationError` | ZooKeeper rejects authentication |
+| `ZkNodeNotFoundError` | A requested read-only node is missing |
+| `ZkSnapshotChangedError` | Two stable-read passes differ |
+| `ZkOperationError` | Another ZooKeeper operation fails |
 | `ZkConfigParseError` | `PROPERTIES_FILE` blob contains an unparseable line |
-| `ZkConfigError` | Base class for both of the above |
+| `ZkConfigError` | Base class for the exceptions above |
 
 ```python
 from zk_config_starter import ZkConnectionError, ZkConfigError

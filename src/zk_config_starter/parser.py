@@ -11,16 +11,22 @@ Not supported (minimal implementation):
 - Multi-line continuation with backslash
 - Unicode escape sequences (\\uXXXX)
 """
-from typing import Dict
+from typing import Dict, Sequence
 
 from .exceptions import ZkConfigParseError
 
 
-def parse_properties(text: str) -> Dict[str, str]:
+def parse_properties(
+    text: str,
+    *,
+    separators: Sequence[str] = ("=", ":"),
+) -> Dict[str, str]:
     """Parse a properties-file text blob into a ``{key: value}`` dict.
 
     Args:
         text: The raw text content of the znode.
+        separators: Allowed key/value separators. The earliest separator in
+            each line is used. Defaults to ``("=", ":")`` for compatibility.
 
     Returns:
         A dictionary of parsed key/value pairs.
@@ -29,6 +35,13 @@ def parse_properties(text: str) -> Dict[str, str]:
         ZkConfigParseError: If a non-comment, non-blank line contains no
             ``=`` or ``:`` separator.
     """
+    if not separators or any(
+        not isinstance(item, str) or not item for item in separators
+    ):
+        raise ValueError(
+            "separators must contain at least one non-empty string"
+        )
+
     result: Dict[str, str] = {}
 
     for lineno, raw_line in enumerate(text.splitlines(), start=1):
@@ -38,24 +51,23 @@ def parse_properties(text: str) -> Dict[str, str]:
         if not line or line[0] in ("#", "!"):
             continue
 
-        # Find separator: first '=' or ':', whichever comes first
-        eq_pos = line.find("=")
-        colon_pos = line.find(":")
-
-        if eq_pos == -1 and colon_pos == -1:
+        # Find the earliest configured separator.
+        positions = [
+            (position, separator)
+            for separator in separators
+            for position in [line.find(separator)]
+            if position != -1
+        ]
+        if not positions:
+            expected = " or ".join(repr(item) for item in separators)
             raise ZkConfigParseError(
-                f"Line {lineno}: no '=' or ':' separator found: {raw_line!r}"
+                f"Line {lineno}: no {expected} separator found: {raw_line!r}"
             )
 
-        if eq_pos == -1:
-            sep_pos = colon_pos
-        elif colon_pos == -1:
-            sep_pos = eq_pos
-        else:
-            sep_pos = min(eq_pos, colon_pos)
+        sep_pos, separator = min(positions, key=lambda item: item[0])
 
         key = line[:sep_pos].strip()
-        value = line[sep_pos + 1:].strip()
+        value = line[sep_pos + len(separator):].strip()
 
         if not key:
             raise ZkConfigParseError(
