@@ -16,7 +16,12 @@ from typing import Generator
 import pytest
 from kazoo.client import KazooClient
 
-from zk_config_starter import StorageMode, ZkConfigClient
+from zk_config_starter import (
+    StorageMode,
+    ZkConfigClient,
+    ZkNodeNotFoundError,
+    ZkReader,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -125,3 +130,49 @@ class TestPropertiesFileMode:
             assert _wait(lambda: "key" in c.config)
             zk_admin.set(test_path, b"")
             assert _wait(lambda: "key" not in c.config)
+
+
+class TestReadOnlyMode:
+    def test_read_preserves_data_and_metadata(
+        self,
+        test_path: str,
+        zk_admin: KazooClient,
+    ) -> None:
+        node_path = f"{test_path}/node"
+        zk_admin.create(node_path, b"value")
+
+        with ZkReader(ZK_HOSTS) as reader:
+            node = reader.read(node_path)
+
+        assert node.path == node_path
+        assert node.data == b"value"
+        assert node.version == 0
+        assert node.cversion == 0
+
+    def test_missing_read_does_not_create_node(
+        self,
+        test_path: str,
+        zk_admin: KazooClient,
+    ) -> None:
+        missing_path = f"{test_path}/missing"
+
+        with ZkReader(ZK_HOSTS) as reader:
+            with pytest.raises(ZkNodeNotFoundError):
+                reader.read(missing_path)
+
+        assert zk_admin.exists(missing_path) is None
+
+    def test_stable_read_returns_ordered_nodes(
+        self,
+        test_path: str,
+        zk_admin: KazooClient,
+    ) -> None:
+        first_path = f"{test_path}/first"
+        second_path = f"{test_path}/second"
+        zk_admin.create(first_path, b"first")
+        zk_admin.create(second_path, b"second")
+
+        with ZkReader(ZK_HOSTS) as reader:
+            nodes = reader.read_stable([first_path, second_path])
+
+        assert [node.path for node in nodes] == [first_path, second_path]

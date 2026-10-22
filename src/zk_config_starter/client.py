@@ -1,11 +1,12 @@
 """Main public facade for zk-config-starter."""
 import logging
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Optional
 
 from kazoo.client import KazooClient
 from kazoo.exceptions import KazooException
 
-from .exceptions import ZkConnectionError
+from .connection import AuthData, _ZkSession, _operation_exception
+from .exceptions import ZkConfigError
 from .modes import StorageMode
 from .store import ConfigStore
 from .watchers.base import Watcher
@@ -42,8 +43,9 @@ class ZkConfigClient:
         mode: How properties are stored under *path*.
             Defaults to :attr:`~StorageMode.CHILDREN_AS_KEYS`.
         timeout: Connection timeout in seconds.
-        auth_data: Optional list of ``(scheme, credential_bytes)`` tuples
-            passed to :meth:`kazoo.client.KazooClient.add_auth`.
+        auth_data: Optional sequence of ``(scheme, credential)`` pairs. String
+            and byte credentials are passed unchanged to
+            :meth:`kazoo.client.KazooClient.add_auth`.
     """
 
     def __init__(
@@ -52,7 +54,7 @@ class ZkConfigClient:
         path: str,
         mode: StorageMode = StorageMode.CHILDREN_AS_KEYS,
         timeout: float = 10.0,
-        auth_data: Optional[List[Tuple[str, bytes]]] = None,
+        auth_data: Optional[AuthData] = None,
     ) -> None:
         self._hosts = hosts
         self._path = path.rstrip("/")
@@ -62,6 +64,11 @@ class ZkConfigClient:
 
         self._store: ConfigStore = ConfigStore()
         self._watcher: Watcher = self._make_watcher()
+        self._session = _ZkSession(
+            hosts,
+            timeout=timeout,
+            auth_data=self._auth_data,
+        )
         self._zk: Optional[KazooClient] = None
         self._started: bool = False
 
@@ -86,20 +93,24 @@ class ZkConfigClient:
             self._mode.value,
         )
 
-        zk = KazooClient(hosts=self._hosts, timeout=self._timeout)
-
         try:
-            zk.start(timeout=self._timeout)
-        except Exception as exc:
-            raise ZkConnectionError(
-                f"Failed to connect to Zookeeper at {self._hosts!r}: {exc}"
+            self._session.start()
+            self._zk = self._session.client
+            self._watcher.start(self._zk, self._path, self._store)
+        except ZkConfigError:
+            self._session.close()
+            self._zk = None
+            raise
+        except KazooException as exc:
+            self._session.close()
+            self._zk = None
+            raise _operation_exception(
+                exc, f"starting watcher for {self._path!r}"
             ) from exc
-
-        for scheme, credential in self._auth_data:
-            zk.add_auth(scheme, credential)
-
-        self._zk = zk
-        self._watcher.start(zk, self._path, self._store)
+        except Exception:
+            self._session.close()
+            self._zk = None
+            raise
         self._started = True
         logger.info("ZkConfigClient started (mode=%s, path=%r)", self._mode.value, self._path)
 
@@ -109,17 +120,12 @@ class ZkConfigClient:
             return
 
         logger.info("Stopping ZkConfigClient")
-        self._watcher.stop()
-
-        if self._zk is not None:
-            try:
-                self._zk.stop()
-                self._zk.close()
-            except KazooException:
-                logger.exception("Error while closing Kazoo client")
+        try:
+            self._watcher.stop()
+        finally:
+            self._session.close()
             self._zk = None
-
-        self._started = False
+            self._started = False
 
     def __enter__(self) -> "ZkConfigClient":
         self.start()

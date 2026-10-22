@@ -21,6 +21,8 @@ property changes.
   - `PROPERTIES_FILE` — one znode whose data is a `key=value` text blob.
 - **Thread-safe** — an `RLock`-guarded store; all reads return snapshots.
 - **Change subscriptions** — register callbacks to react to config changes.
+- **Read-only snapshots** — read raw znode data plus version metadata without
+  creating nodes, including two-pass consistency verification.
 - **Python 3.7+** — typed throughout; compatible with `typing` module generics.
 - **Context manager** support for clean lifecycle management.
 
@@ -82,6 +84,27 @@ with ZkConfigClient(hosts="localhost:2181", path="/config") as client:
     # … your application code …
     unsub()
 ```
+
+### Read-only znode access
+
+Use `ZkReader` when you need raw bytes and znode version metadata rather than
+a live configuration dictionary:
+
+```python
+from zk_config_starter import ZkReader
+
+with ZkReader(hosts="localhost:2181") as reader:
+    node = reader.read("/config/device")
+    print(node.data, node.version, node.cversion)
+
+    # Exactly two ordered passes. This detects changes but is not atomic.
+    nodes = reader.read_stable([
+        "/config/device",
+        "/config/device/camera-0",
+    ])
+```
+
+`ZkReader` never creates missing nodes and does not install watches.
 
 ---
 

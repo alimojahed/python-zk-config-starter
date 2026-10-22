@@ -65,3 +65,20 @@ class TestParseProperties:
 
     def test_unicode_values(self) -> None:
         assert parse_properties("greeting=こんにちは") == {"greeting": "こんにちは"}
+
+    def test_strict_equals_mode(self) -> None:
+        assert parse_properties("key=value", separators=("=",)) == {
+            "key": "value"
+        }
+
+    def test_strict_equals_mode_rejects_colon(self) -> None:
+        with pytest.raises(ZkConfigParseError, match="no '='"):
+            parse_properties("key:value", separators=("=",))
+
+    def test_default_separators_remain_backward_compatible(self) -> None:
+        assert parse_properties("key:value") == {"key": "value"}
+
+    @pytest.mark.parametrize("separators", [(), ("",)])
+    def test_invalid_separator_configuration(self, separators: tuple) -> None:
+        with pytest.raises(ValueError):
+            parse_properties("key=value", separators=separators)
